@@ -1,0 +1,412 @@
+#lang racket
+
+(require 2htdp/image)
+(require 2htdp/universe)
+(require htdp/testing)
+
+(define screen-scale 1);
+(define screen-width (* 1144 screen-scale));
+(define screen-height (* 573 screen-scale));
+
+(define start true);
+(define pad-height (round (* screen-height 0.2)));
+
+(define width screen-width);
+(define height (if start (- screen-height pad-height) screen-height));
+
+(define hor-centre (round (/ width 2)));
+(define ver-centre (round (/ height 2)));
+
+(define outline 10)
+
+(define wall-height 16)
+
+(define paddle-height 90)
+
+(define paddle-thickness 16)
+
+(define ball-radius 16)
+
+(define top wall-height)
+(define bottom (- height wall-height))
+
+(define left (+ paddle-thickness outline))
+(define right (- width (+ paddle-thickness outline)))
+
+(define set-paddle-speed 15)
+
+(define start-speed 45)
+
+(define max-speed 90)
+
+(define (display-msg msg font-size x y scene)
+  (place-image (text/font msg font-size "white"
+             "impact" 'system 'normal 'light #f)
+                    x y
+                    scene))
+
+(define (draw-image image x y scene)
+   (place-image image
+      (+ x (round (/  (image-width image) 2)))
+      (+ y (round (/ (image-height image) 2)))
+      scene))
+
+(define (vertical-dashed-line w h x ys ye c bg)
+  (if (< ys ye)
+    (draw-image
+      (rectangle w h "solid" c)
+      x ys
+      (vertical-dashed-line w h x (+ ys (* 2 h)) ye c bg))
+    bg))
+
+(define (draw-vertical w h bg)
+    (vertical-dashed-line ball-radius ball-radius (- (/ w 2) (/ ball-radius 2)) 0 h "white" bg))
+
+(define background (freeze (draw-vertical width height
+      (bitmap "../pongparts/back.png"))))
+
+(define BALL (freeze (circle ball-radius "solid" "orange")))
+
+(define PADDLE (freeze  (overlay/offset (overlay/offset
+                                         (rectangle paddle-thickness paddle-height "solid" "white")
+                                         0 (/ paddle-height 2)
+                                         (circle (/ paddle-thickness 2) "solid" "white"))
+                                       0 (+ (- 5) (- (/ paddle-height 2)))
+                                        (circle (/ paddle-thickness 2) "solid" "white"))))
+
+(define (draw-paddle paddle background)
+  (underlay/xy
+    background
+    (position-x (paddle-pos paddle)) 
+    (position-y (paddle-pos paddle)) 
+    PADDLE))
+  
+(define (draw-idle-game world)
+  (draw-paddle (pong-world-left-paddle world)
+    (draw-paddle (pong-world-right-paddle world)
+      (place-image
+        (text (number->string (pong-world-left-score world)) 98 "white") 
+        (- hor-centre 60) 80
+        (place-image
+          (text (number->string (pong-world-right-score world)) 98 "white") 
+          (+ hor-centre 60) 80
+          background)))))
+        
+(define (draw-goodbye world)
+   (display-msg "Thank
+    for" 48
+      (- hor-centre 100) ver-centre
+      
+          (display-msg "you
+playing" 48
+      (+ hor-centre 100) ver-centre
+      (draw-idle-game world))))
+
+(define (draw-pong-start start-type world)
+    (cond
+      [(string=? (pong-world-status world) "in-play") 
+       (place-image BALL 
+                    (position-x (ball-pos (pong-world-ball world))) 
+                    (position-y (ball-pos (pong-world-ball world)))
+                    (draw-idle-game world))]
+      [(string=? (pong-world-status world) "left-player-serves")
+       (display-msg "Hit space to serve" 36 
+                    (- hor-centre 200) ver-centre
+                    (draw-idle-game world))]
+      [(string=? (pong-world-status world) "right-player-serves")
+       (display-msg "Hit space to serve" 36
+                    (+ hor-centre 200) ver-centre
+                    (draw-idle-game world))]
+      [(string=? (pong-world-status world) "left-player-won")
+       (display-msg "PLAYER1 wins!!!" 48
+                    (- hor-centre 200) ver-centre
+                    (draw-idle-game world))]
+      [(string=? (pong-world-status world) "right-player-won")
+       (display-msg "PLAYER2 wins!!!" 48
+                    (+ hor-centre 200) ver-centre
+                    (draw-idle-game world))]
+      [else (draw-idle-game world)]))
+
+(define (draw-pong-world world)
+(draw-pong-start "" world))
+
+(struct paddle [pos dir speed]
+  #:prefab
+  #:constructor-name make-paddle)
+
+(struct position [x y]
+  #:prefab
+  #:constructor-name make-position)
+
+(struct direction [dx dy]
+  #:prefab
+  #:constructor-name make-direction)
+
+(struct ball [pos dir speed] 
+  #:prefab
+  #:constructor-name make-ball)
+
+(struct pong-world 
+  [status ball left-paddle right-paddle left-score right-score [sound #:auto] ]
+  #:prefab
+  #:mutable
+  #:auto-value "none"
+  #:constructor-name make-pong-world)
+
+(define DOWN-DIR (make-direction 0 1))
+
+(define UP-DIR (make-direction 0 -1))
+
+(define (set-and-return setter instance field-val)
+  (begin
+    (apply setter (list instance field-val))
+    instance))
+
+ 
+(define (pong-world-set-ball world ball)
+   (set-and-return set-pong-world-ball! world ball)) 
+(define (pong-world-set-right-paddle world right-paddle)
+   (set-and-return set-pong-world-right-paddle! world right-paddle))
+(define (pong-world-set-status world status)
+   (set-and-return set-pong-world-status! world status))
+(define (pong-world-set-left-paddle world left-paddle)
+   (set-and-return set-pong-world-left-paddle! world left-paddle))
+(define (pong-world-state world state)
+   (set-and-return set-pong-world-sound! world state))
+
+(define (make-initial-world initial-status initial-ball) (make-pong-world
+                       initial-status
+                       initial-ball
+                       (make-paddle (make-position outline (- ver-centre (/ paddle-height 2)))
+                                    (make-direction 0 1)
+                                    0)
+                       (make-paddle (make-position right (- ver-centre (/ paddle-height 2)))
+                                    (make-direction 0 1)
+                                    0)
+                       0
+0))
+
+(define blank-world (make-initial-world "left-player-serves" 
+                      (make-ball (make-position hor-centre ver-centre)
+                        (make-direction 0.5 0)
+                        start-speed)))
+
+(define (handle-tick world)
+  (if (string=? (pong-world-status world) "in-play")
+    (check-paddle-block
+      (let
+        ([original-ball-dy (direction-dy (ball-dir (pong-world-ball world)))]
+        [new-ball (vertical-ball-bounce (move-ball (pong-world-ball world)))])
+        (pong-world-state
+         (make-pong-world 
+          (pong-world-status world)
+          new-ball
+          (move-paddle2 (pong-world-left-paddle world) world)
+          (move-paddle (pong-world-right-paddle world))
+          (pong-world-left-score world)
+          (pong-world-right-score world))
+         (if (eq? original-ball-dy (direction-dy (ball-dir new-ball))) "none" "wall"))))
+    (make-pong-world 
+      (pong-world-status world)
+      (pong-world-ball world)
+      (move-paddle2 (pong-world-left-paddle world) world)
+      (move-paddle (pong-world-right-paddle world))
+      (pong-world-left-score world)
+      (pong-world-right-score world))))
+
+(define (handle-key-down world a-key)
+  (cond
+    [(key=? a-key "w") 
+       (set-left-moving world UP-DIR set-paddle-speed)]
+    [(key=? a-key "s")
+       (set-left-moving world DOWN-DIR set-paddle-speed)]
+    [(key=? a-key "up") 
+       (set-right-moving world UP-DIR set-paddle-speed)]
+    [(key=? a-key "down") 
+       (set-right-moving world DOWN-DIR set-paddle-speed)]
+    [else world]))
+
+(define (handle-key-up world a-key)
+  (cond
+    [(or (key=? a-key "w") (key=? a-key "s"))
+      (set-left-moving world UP-DIR 0)]
+    [(or (key=? a-key "up") (key=? a-key "down"))
+      (set-right-moving world UP-DIR 0)]
+    [(key=? a-key "escape") 
+      (pong-world-set-status world "quitting")]
+    [(key=? a-key " ")
+        (cond
+          [(string=? (pong-world-status world) "in-play") world]
+          [(string=? (pong-world-status world) "left-player-serves")
+            (serve-ball world 0.5 start-speed)]
+          [(string=? (pong-world-status world) "right-player-serves")
+            (serve-ball world -0.5 start-speed)]
+          [else (pong-world-set-status blank-world "left-player-serves")])]
+    [else  world]))
+
+(define (move-coord current dir speed)
+  (inexact->exact (round (+ current (* dir speed)))))
+
+(define (move-ball ball)
+  (make-ball (make-position 
+               (move-coord (position-x (ball-pos ball)) (direction-dx (ball-dir ball)) (ball-speed ball))
+               (move-coord (position-y (ball-pos ball)) (direction-dy (ball-dir ball)) (ball-speed ball)))
+               (ball-dir ball)
+               (ball-speed ball)))
+
+(define (move-paddle-vert current-y dir speed)
+  (min (max (inexact->exact (round (+ current-y (* dir speed)))) (+ top 2)) (- bottom paddle-height 2)))
+
+(define (move-paddle paddle)
+  (make-paddle (make-position 
+                 (position-x (paddle-pos paddle))
+                 (move-paddle-vert 
+                   (position-y (paddle-pos paddle)) 
+                   (direction-dy (paddle-dir paddle)) 
+                   (paddle-speed paddle)))
+               (paddle-dir paddle)
+               (paddle-speed paddle)))
+(define (move-paddle2 paddle world)
+  (make-paddle (make-position 
+                 (position-x (paddle-pos paddle))
+                 (move-paddle-vert 
+                   (- (position-y (ball-pos (pong-world-ball world))) (/ paddle-height 2) ) 
+                   (direction-dy (ball-dir (pong-world-ball world))) 
+                   (* (direction-dy (ball-dir (pong-world-ball world))) (ball-speed (pong-world-ball world)))))
+               (paddle-dir paddle)
+               (paddle-speed paddle)))
+
+(define (vertical-bounce ball x y dx dy speed)
+    (if (< dy 0)
+       (if (< y top)
+         (make-ball (make-position x top)
+                    (make-direction dx (- 0 dy))
+                    speed)
+         ball)
+       (if (> y bottom)
+         (make-ball (make-position x bottom)
+                    (make-direction dx (- 0 dy))
+                    speed)
+         ball))) 
+(define (vertical-ball-bounce ball)
+  (vertical-bounce ball
+          (position-x (ball-pos ball))
+          (position-y (ball-pos ball))
+          (direction-dx (ball-dir ball))
+          (direction-dy (ball-dir ball))
+          (ball-speed ball)))
+(define (score-a-point world side)
+    (if (string=? side "left")
+      (pong-world-state (make-pong-world    
+               (if (< (pong-world-left-score world) 9) "right-player-serves" "left-player-won")
+        (make-ball initial-position (make-direction -0.5 0) start-speed)
+        (pong-world-left-paddle world)
+        (pong-world-right-paddle world)
+        (+ (pong-world-left-score world) 1)
+        (pong-world-right-score world)) "missed")
+      (pong-world-state (make-pong-world    
+        (if (< (pong-world-right-score world) 9) "left-player-serves" "right-player-won")
+        (make-ball initial-position (make-direction 0.5 0) start-speed)
+        (pong-world-left-paddle world)
+        (pong-world-right-paddle world)
+        (pong-world-left-score world)
+        (+ (pong-world-right-score world) 1))
+        "missed")))
+
+(define (horizontal-bounce-y world left-paddle-y right-paddle-y x y dx dy speed)
+   
+    (if (< dx 0)
+      
+       (if (< x left)
+         
+         (if (and (> y (- left-paddle-y outline)) (< y (+ left-paddle-y paddle-height outline)))
+           (pong-world-state (pong-world-set-ball world 
+                (make-ball (make-position left y)
+                  (make-direction (- 0 dx) (vary-dy-by-intersection left-paddle-y y))
+                  (hit-point-speed speed left-paddle-y y))) "paddle")
+       
+           (score-a-point world "right"))
+         world)
+     
+       (if (> x right)
+     
+         (if (and (> y (- right-paddle-y outline)) (< y (+ right-paddle-y paddle-height outline)))
+           (pong-world-state (pong-world-set-ball world 
+                (make-ball (make-position right y)
+                  (make-direction (- 0 dx) (vary-dy-by-intersection right-paddle-y y))
+                  (hit-point-speed speed right-paddle-y y))) "paddle")
+         (score-a-point world "left"))
+       world)))
+
+(define (horizontal-bounce world x y dx dy speed)
+  (horizontal-bounce-y world 
+                     (position-y (paddle-pos (pong-world-left-paddle world))) 
+                     (position-y (paddle-pos (pong-world-right-paddle world))) x y dx dy speed))
+
+(define (vary-dy-by-intersection paddle-y intersect-y)
+  (/ (- intersect-y (+ paddle-y (/ paddle-height 2))) paddle-height))
+
+(define (hit-point-speed current-speed paddle-y intersect-y)
+  (min max-speed 
+       (round (+ current-speed 
+                 (* (/ (abs (- intersect-y (+ paddle-y (/ paddle-height 2)))) 
+                    (/ paddle-height 2)) 3)))))
+
+(define (check-paddle-block world)
+  (horizontal-bounce world           
+          (position-x (ball-pos (pong-world-ball world)))
+          (position-y (ball-pos (pong-world-ball world)))
+          (direction-dx (ball-dir (pong-world-ball world)))
+          (direction-dy (ball-dir (pong-world-ball world)))
+          (ball-speed (pong-world-ball world))))
+
+(define (set-paddle-moving paddle dir speed)
+  (make-paddle 
+    (paddle-pos paddle)
+    dir
+    speed))
+
+(define (set-paddle-pos paddle pos)
+  (make-paddle 
+    pos
+    (paddle-dir paddle)
+    (paddle-speed paddle)))
+
+(define (set-left-moving world dir speed)
+  (pong-world-set-left-paddle world (set-paddle-moving (pong-world-left-paddle world) (direction-dy (ball-dir (pong-world-ball world))) (* (ball-speed (pong-world-ball world))
+                                                                                                                                          (direction-dy (ball-dir (pong-world-ball world)))) )))
+ 
+(define (set-right-moving world dir speed)
+  (pong-world-set-right-paddle world (set-paddle-moving (pong-world-right-paddle world) dir speed)))
+
+(define initial-position (make-position hor-centre ver-centre))
+
+(define (serve-ball world dx speed)
+  (pong-world-set-status 
+    (pong-world-set-ball world 
+      (make-ball initial-position
+        (make-direction dx 0)
+        speed)) 
+"in-play"))
+
+(define (main world)
+  (if start
+    (big-bang world
+            [name "Pong World"]
+            [on-tick handle-tick]
+            [to-draw draw-pong-world]
+            [on-pad handle-key-down]
+            [on-release handle-key-up]
+            [stop-when (lambda (world) (string=? (pong-world-status world) "quitting")) draw-goodbye])
+    (big-bang world
+            [name "Pong World"]
+            [on-tick handle-tick]
+            [to-draw draw-pong-world]
+            [on-key handle-key-down]
+            [on-release handle-key-up]
+            [stop-when (lambda (world) (string=? (pong-world-status world) "quitting")) draw-goodbye])))
+
+(define initial-world (make-initial-world "left-player-serves" 
+                      (make-ball (make-position hor-centre ver-centre)
+                        (make-direction 0.5 0)
+start-speed)))

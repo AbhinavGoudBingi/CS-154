@@ -1,2 +1,2 @@
 # CS-154
-This repository contains the code for my project done as part of the course CS 154 - Abstractions and Programming Paradigms Lab under prof. Amitabha Sanyal in the Spring 2018-19 Semester at IIT Bombay. The project consists of three games made using racket - ping pong(PvP and CvP), minesweeper and sudoku. This is a group project made by Abhinav Goud Bingi(180050002), Rishyanth Kondra(180050050), Revanth Kumar Urabavi(180050114).
+This repository contains the code for the assignments done as part of the course CS 154 - Abstractions and Programming Paradigms Lab under prof. Amitabha Sanyal in the Spring 2018-19 Semester at IIT Bombay.
